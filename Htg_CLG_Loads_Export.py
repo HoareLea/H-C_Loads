@@ -232,6 +232,22 @@ def print_clg_var_availability_summary(rr):
     except Exception as e:
         log(f"[CLG][WARN] Could not compute variable availability summary: {e}")
 
+def make_excel_table(ws, start_row, start_col, nrows, ncols, table_name):
+    if nrows < 2 or ncols < 1:   # need header + at least 1 data row
+        return
+
+    # Excel constants (late-bound safe)
+    xlSrcRange = 1
+    xlYes = 1
+
+    rng = ws.Range(
+        ws.Cells(start_row, start_col),
+        ws.Cells(start_row + nrows - 1, start_col + ncols - 1)
+    )
+
+    lo = ws.ListObjects.Add(xlSrcRange, rng, None, xlYes)
+    lo.Name = table_name
+    lo.TableStyle = None #"TableStyleMedium2"   # optional
 
 # ============================================================
 # IES COLLECTION
@@ -410,17 +426,17 @@ def write_results_to_template_com(
     clg_sheet_name=CLG_SHEET_NAME,
     htg_marker=HTG_MARKER,
     clg_marker=CLG_MARKER,
-    solar_marker=SOLAR_MARKER,   # <-- new
+    solar_marker=SOLAR_MARKER,
 ):
     pythoncom.CoInitialize()
-    excel = win32.DispatchEx("Excel.Application")
-    excel.Visible = False
-    excel.DisplayAlerts = False
-
+    excel = None
     wb = None
     try:
-        wb = excel.Workbooks.Open(str(template_path))
+        excel = win32.DispatchEx("Excel.Application")
+        excel.Visible = False
+        excel.DisplayAlerts = False
 
+        wb = excel.Workbooks.Open(str(template_path))
         ws_htg = wb.Worksheets(htg_sheet_name)
         ws_clg = wb.Worksheets(clg_sheet_name)
 
@@ -434,29 +450,37 @@ def write_results_to_template_com(
             raise ValueError(f'Marker "{clg_marker}" not found in sheet "{clg_sheet_name}".')
         if solar_anchor is None:
             raise ValueError(f'Marker "{solar_marker}" not found in sheet "{clg_sheet_name}".')
-        
 
         htg_header_row, htg_col = htg_anchor[0] + 1, htg_anchor[1]
-        htg_data_row = htg_header_row + 1
         clg_header_row, clg_col = clg_anchor[0] + 1, clg_anchor[1]
-        clg_data_row = clg_header_row + 1
 
-        write_2d_block(ws_htg, htg_header_row, htg_col, [HTG_HEADERS])
-        write_2d_block(ws_clg, clg_header_row, clg_col, [CLG_HEADERS])
+        # Main HTG/CLG blocks
+        htg_block = [HTG_HEADERS] + hl_data
+        clg_block = [CLG_HEADERS] + hg_data
 
-        write_2d_block(ws_htg, htg_data_row, htg_col, hl_data)
-        write_2d_block(ws_clg, clg_data_row, clg_col, hg_data)
+        write_2d_block(ws_htg, htg_header_row, htg_col, htg_block)
+        write_2d_block(ws_clg, clg_header_row, clg_col, clg_block)
 
+        make_excel_table(ws_htg, htg_header_row, htg_col, len(htg_block), len(HTG_HEADERS), "IES_htg")
+        make_excel_table(ws_clg, clg_header_row, clg_col, len(clg_block), len(CLG_HEADERS), "IES_clg")
 
-        # choose first (top-left) match; change to solar_hits[-1] if you prefer last
+        # Solar block + table (title row + tabular block under it)
         solar_start_row, solar_start_col = solar_anchor
         solar_block = [["Peak time table - Solar gain maximums"]] + solar_peaks_table
-
-
         write_2d_block(ws_clg, solar_start_row, solar_start_col, solar_block)
 
+        make_excel_table(
+            ws_clg,
+            solar_start_row + 1,          # header row of tabular data
+            solar_start_col,
+            len(solar_peaks_table),
+            len(solar_peaks_table[0]),
+            "IES_max_solar",
+        )
+
+        # Optional combined summary
         if WRITE_CLG_COMBINED_SUMMARY and clg_combined_summary:
-            summary_row = clg_data_row + len(hg_data) + 1
+            summary_row = clg_header_row + len(clg_block) + 1
             summary_block = [[
                 f"Combined peak ({clg_combined_summary[3]}) (kW)", clg_combined_summary[0],
                 "Month", clg_combined_summary[1], "Time", clg_combined_summary[2]
@@ -481,7 +505,6 @@ def write_results_to_template_com(
             pythoncom.CoUninitialize()
         except Exception:
             pass
-
 
 # ============================================================
 # VALIDATION / RESOLUTION
