@@ -22,7 +22,7 @@ CLG_SHEET_NAME = "IES - heat gain data (.clg)"
 
 HTG_MARKER = "IES ZONE HEAT LOSS OUTPUTS"
 CLG_MARKER = "IES ZONE HEAT GAIN OUTPUTS"
-SOLAR_MARKER = "Peak time table - Solar gain"
+SOLAR_MARKER = "Peak time table - Solar gain maximums"
 
 # Primary driver (fallback logic still applied if missing)
 PEAK_DRIVER = "Cooling + dehum plant load (kW)"
