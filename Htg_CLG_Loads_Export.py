@@ -226,13 +226,12 @@ def print_clg_var_availability_summary(rr):
         vars_all = rr.get_variables()
         z_vars = [v for v in vars_all if v.get("model_level") == "z"]
         display_names = {v.get("display_name") for v in z_vars}
-        present = sorted([x for x in wanted if x in display_names])
         missing = sorted([x for x in wanted if x not in display_names])
-        log(f"[CLG][INFO] z-level variables present ({len(present)}): {present}")
-        log(f"[CLG][INFO] z-level variables missing ({len(missing)}): {missing}")
+        if missing:
+            log(f"[CLG][WARN] z-level variables missing ({len(missing)}): {missing}")
     except Exception as e:
         log(f"[CLG][WARN] Could not compute variable availability summary: {e}")
-
+        
 
 # ============================================================
 # IES COLLECTION
