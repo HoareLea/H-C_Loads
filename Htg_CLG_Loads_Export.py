@@ -231,7 +231,7 @@ def print_clg_var_availability_summary(rr):
             log(f"[CLG][WARN] z-level variables missing ({len(missing)}): {missing}")
     except Exception as e:
         log(f"[CLG][WARN] Could not compute variable availability summary: {e}")
-        
+
 
 # ============================================================
 # IES COLLECTION
@@ -419,7 +419,6 @@ def write_results_to_template_com(
 
     wb = None
     try:
-        log("[XLSX] Opening workbook...")
         wb = excel.Workbooks.Open(str(template_path))
 
         ws_htg = wb.Worksheets(htg_sheet_name)
@@ -436,9 +435,6 @@ def write_results_to_template_com(
         if solar_anchor is None:
             raise ValueError(f'Marker "{solar_marker}" not found in sheet "{clg_sheet_name}".')
         
-        log(f"[XLSX] HTG marker at: {htg_anchor}")
-        log(f"[XLSX] CLG marker at: {clg_anchor}")
-        log(f"[XLSX] SOLAR marker at: {solar_anchor}")
 
         htg_header_row, htg_col = htg_anchor[0] + 1, htg_anchor[1]
         htg_data_row = htg_header_row + 1
@@ -456,8 +452,6 @@ def write_results_to_template_com(
         solar_start_row, solar_start_col = solar_anchor
         solar_block = [["Peak time table - Solar gain maximums"]] + solar_peaks_table
 
-        log(f"[XLSX] Solar table rows to write: {len(solar_block)}")
-        log(f"[XLSX] Writing solar table at row {solar_start_row}, col {solar_start_col}")
 
         write_2d_block(ws_clg, solar_start_row, solar_start_col, solar_block)
 
@@ -549,7 +543,6 @@ def main():
     log(f"[CFG] HTG_FILE = {HTG_FILE}")
     log(f"[CFG] CLG_FILE = {CLG_FILE}")
     log(f"[CFG] TEMPLATE_PATH = {TEMPLATE_PATH}")
-    log(f"[CFG] PEAK_DRIVER = {PEAK_DRIVER}")
 
     template_path, vista_path = validate_inputs(project_folder)
     htg_path = vista_path / HTG_FILE
