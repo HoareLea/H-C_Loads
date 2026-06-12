@@ -42,7 +42,8 @@ HTG_HEADERS = [
     "Internal conduction gain (kW)",
     "Infiltration gain (kW)",
     "Natural ventilation (kW)",
-    "Auxiliary gain (kW)"
+    "Auxiliary gain (kW)",
+    "Infiltration ACH"
 ]
 
 CLG_HEADERS = [
@@ -287,6 +288,9 @@ def detect_cooling_sensible_pair(rr, sample_room_id):
 def collect_heating_data(results_reader, htg_file_path, room_ids_to_analyse):
     log(f"[HTG] Opening: {htg_file_path}")
     rr = results_reader.open(str(htg_file_path))
+    try: print("[UNITS] Infiltration:", (rr.get_units().get("Volume flow", {}).get("metric", {}) or {}).get("display_name"))
+    except Exception: print("[UNITS] Infiltration units unavailable from get_units()")
+    
     try:
         rooms = rr.get_room_list()
         hl_data = []
@@ -303,9 +307,7 @@ def collect_heating_data(results_reader, htg_file_path, room_ids_to_analyse):
             np_infiltration_gain = get_room_results_safe(rr, room_id, 'Infiltration gain', 'Infiltration gain')
             np_natural_ventilation_gain = get_room_results_safe(rr, room_id, 'Natural vent gain', 'Natural vent gain')
             np_aux_gain = get_room_results_safe(rr, room_id, 'Aux mech vent gain', 'Aux vent gain')
-
-            steady_w = scalar(np_steady_state_heating_plant_load)
-            steady_kw_raw = float(steady_w) / 1000.0
+            np_infiltration_flow = get_room_results_safe(rr, room_id, 'Infiltration', 'Infiltration')*1e3*3.6/room_volume
             
             hl_data.append([
                 name,
@@ -317,6 +319,7 @@ def collect_heating_data(results_reader, htg_file_path, room_ids_to_analyse):
                 round(float(scalar(np_infiltration_gain)) / 1000.0, 2),
                 round(float(scalar(np_natural_ventilation_gain)) / 1000.0, 2),
                 round(float(scalar(np_aux_gain)) / 1000.0, 2),
+                round(float(scalar(np_infiltration_flow)), 4),  # m³/s
             ])
 
         log(f"[HTG] Rows prepared: {len(hl_data)}")
@@ -634,7 +637,7 @@ def main():
 
     if not hg_data:
         log("[CLG][WARN] No cooling rows prepared. Workbook will still be written (headers + tables).")
-
+    
     write_results_to_template_com(
         template_path=template_path,
         hl_data=hl_data,
