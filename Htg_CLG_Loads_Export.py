@@ -41,8 +41,8 @@ HTG_HEADERS = [
     "External conduction gain (kW)",
     "Internal conduction gain (kW)",
     "Infiltration gain (kW)",
-    "Steady state heating plant load (kW)",
-    "Running total heating load (kW)",
+    "Natural ventilation (kW)",
+    "Auxiliary gain (kW)"
 ]
 
 CLG_HEADERS = [
@@ -99,9 +99,9 @@ def scalar(x):
         return x
 
 
-def get_room_results_safe(rr, room_id, aps_var, vista_var, var_level='z', start_day=-1, end_day=-1):
+def get_room_results_safe(rr, room_id, aps_var, vista_var, start_day=-1, end_day=-1):
     try:
-        return rr.get_room_results(room_id, aps_var, vista_var, var_level, start_day, end_day)
+        return rr.get_room_results(room_id, aps_var, vista_var, 'z', start_day, end_day)
     except TypeError:
         return rr.get_room_results(room_id, aps_var, vista_var, start_day, end_day)
 
@@ -249,6 +249,38 @@ def make_excel_table(ws, start_row, start_col, nrows, ncols, table_name):
     lo.Name = table_name
     lo.TableStyle = None #"TableStyleMedium2"   # optional
 
+def get_z_display_names(rr):
+    try:
+        vars_all = rr.get_variables()
+        z_vars = [v for v in vars_all if v.get("model_level") == "z"]
+        return sorted({v.get("display_name") for v in z_vars if v.get("display_name")})
+    except Exception:
+        return []
+
+
+def detect_cooling_sensible_pair(rr, sample_room_id):
+    candidates = [
+        ("Room units cooling load", "Cooling plant sensible load"),
+    ]
+
+    for aps_name, vista_name in candidates:
+        try:
+            s = get_room_results_safe(rr, sample_room_id, aps_name, vista_name)
+            if s is None:
+                continue
+            _, peak = safe_peak(s)
+            if peak is not None:
+                log(f"[CLG][INFO] Using cooling sensible pair: aps='{aps_name}' | vista='{vista_name}'")
+                return aps_name, vista_name
+        except Exception:
+            continue
+
+    z_names = get_z_display_names(rr)
+    raise RuntimeError(
+        "Could not detect room-level cooling sensible load variable pair.\n"
+        f"Available z-level display names:\n{z_names}"
+    )
+
 # ============================================================
 # IES COLLECTION
 # ============================================================
@@ -258,26 +290,23 @@ def collect_heating_data(results_reader, htg_file_path, room_ids_to_analyse):
     try:
         rooms = rr.get_room_list()
         hl_data = []
-        running_total_kw = 0.0
 
         for room in rooms:
             name, room_id, room_area, room_volume = room
             if room_id not in room_ids_to_analyse:
                 continue
 
-            np_air_temp = get_room_results_safe(rr, room_id, 'Room air temperature', 'Air temperature', 'z')
-            np_dry_resultant_temp = get_room_results_safe(rr, room_id, 'Comfort temperature', 'Dry resultant temperature', 'z')
-            np_external_conduction_gain = get_room_results_safe(rr, room_id, 'Conduction from ext elements', 'External conduction gain', 'z')
-            np_internal_conduction_gain = get_room_results_safe(rr, room_id, 'Conduction from int surfaces', 'Internal conduction gain', 'z')
-            np_infiltration_gain = get_room_results_safe(rr, room_id, 'Infiltration gain', 'Infiltration gain', 'z')
-            np_steady_state_heating_plant_load = get_room_results_safe(
-                rr, room_id, 'Room units steady state htg load', 'Steady state heating plant load', 'z'
-            )
+            np_air_temp = get_room_results_safe(rr, room_id, 'Room air temperature', 'Air temperature')
+            np_dry_resultant_temp = get_room_results_safe(rr, room_id, 'Comfort temperature', 'Dry resultant temperature')
+            np_external_conduction_gain = get_room_results_safe(rr, room_id, 'Conduction from ext elements', 'External conduction gain')
+            np_internal_conduction_gain = get_room_results_safe(rr, room_id, 'Conduction from int surfaces', 'Internal conduction gain')
+            np_infiltration_gain = get_room_results_safe(rr, room_id, 'Infiltration gain', 'Infiltration gain')
+            np_natural_ventilation_gain = get_room_results_safe(rr, room_id, 'Natural vent gain', 'Natural vent gain')
+            np_aux_gain = get_room_results_safe(rr, room_id, 'Aux mech vent gain', 'Aux vent gain')
 
             steady_w = scalar(np_steady_state_heating_plant_load)
             steady_kw_raw = float(steady_w) / 1000.0
-            running_total_kw += steady_kw_raw
-
+            
             hl_data.append([
                 name,
                 round(float(room_area), 2),
@@ -286,8 +315,8 @@ def collect_heating_data(results_reader, htg_file_path, room_ids_to_analyse):
                 round(float(scalar(np_external_conduction_gain)) / 1000.0, 2),
                 round(float(scalar(np_internal_conduction_gain)) / 1000.0, 2),
                 round(float(scalar(np_infiltration_gain)) / 1000.0, 2),
-                round(steady_kw_raw, 2),
-                round(running_total_kw, 2),
+                round(float(scalar(np_natural_ventilation_gain)) / 1000.0, 2),
+                round(float(scalar(np_aux_gain)) / 1000.0, 2),
             ])
 
         log(f"[HTG] Rows prepared: {len(hl_data)}")
@@ -311,13 +340,19 @@ def collect_cooling_data(results_reader, clg_file_path, room_ids_to_analyse, pea
             "Conduction gain (kW)": ("Conduction gain", "Conduction gain"),
             "Infiltration gain (kW)": ("Infiltration gain", "Infiltration gain"),
             "Cooling + dehum plant load (kW)": ("Room units cooling + dehum load", "Cooling + dehum plant load"),
-            "Space conditioning sensible (kW)": ("System plant etc. gains", "Space conditioning sensible"),
         }
-
 
         hg_data = []
         solar_peaks_table = [["Room Name", "Peak date", "Peak time", "Max solar gain (kW)"]]
-        all_driver_series = []
+        all_sensible_series = []
+
+        # find first selected room for auto-detect
+        selected_rooms = [r for r in rooms if r[1] in room_ids_to_analyse]
+        if not selected_rooms:
+            return hg_data, False, solar_peaks_table
+
+        sample_room_id = selected_rooms[0][1]
+        sens_aps, sens_vista = detect_cooling_sensible_pair(rr, sample_room_id)
 
         for room in rooms:
             name, room_id, room_area, room_volume = room
@@ -329,7 +364,7 @@ def collect_cooling_data(results_reader, clg_file_path, room_ids_to_analyse, pea
 
             for k, (aps_name, vista_name) in var_map.items():
                 try:
-                    s = get_room_results_safe(rr, room_id, aps_name, vista_name, 'z')
+                    s = get_room_results_safe(rr, room_id, aps_name, vista_name)
                     if s is None:
                         failed = True
                         log(f"[CLG][WARN] Required field missing: {k} for room {room_id} ({name})")
@@ -342,6 +377,16 @@ def collect_cooling_data(results_reader, clg_file_path, room_ids_to_analyse, pea
 
             if failed:
                 continue
+
+            # cooling sensible series for combined coincident peak
+            try:
+                sens_series = get_room_results_safe(rr, room_id, sens_aps, sens_vista)
+                if sens_series is not None:
+                    all_sensible_series.append(sens_series)
+                else:
+                    log(f"[CLG][WARN] Cooling sensible series missing for room {room_id} ({name})")
+            except Exception as e:
+                log(f"[CLG][WARN] Cooling sensible series failed for room {room_id} ({name}) -> {e}")
 
             driver_series, used_driver = pick_peak_driver_series(series, room_id, name, peak_driver)
             if driver_series is None:
@@ -379,18 +424,17 @@ def collect_cooling_data(results_reader, clg_file_path, room_ids_to_analyse, pea
                 safe_kw_at(series["Conduction gain (kW)"], peak_hour),
                 safe_kw_at(series["Infiltration gain (kW)"], peak_hour),
                 safe_kw_at(series["Cooling + dehum plant load (kW)"], peak_hour),
-                safe_kw_at(series["Space conditioning sensible (kW)"], peak_hour),
             ])
-            all_driver_series.append(driver_series)
 
+        # NEW combined coincident peak: max_h sum_rooms Cooling_sensible(room,h)
         combined_summary = False
-        if all_driver_series:
-            n_hours = len(all_driver_series[0])
+        if all_sensible_series:
+            n_hours = len(all_sensible_series[0])
             combined = []
             for h in range(n_hours):
                 s = 0.0
                 valid = False
-                for arr in all_driver_series:
+                for arr in all_sensible_series:
                     try:
                         v = float(arr[h])
                         if math.isnan(v) or math.isinf(v):
@@ -405,13 +449,12 @@ def collect_cooling_data(results_reader, clg_file_path, room_ids_to_analyse, pea
             if valid_combined:
                 c_hour, c_peak = max(valid_combined, key=lambda t: t[1])
                 m, t = month_time_from_hour_index(c_hour)
-                combined_summary = [round(float(c_peak / 1000), 3), m, t, peak_driver]
+                combined_summary = [round(float(c_peak / 1000.0), 3), m, t, "Cooling plant sensible load (kW)"]
 
         log(f"[CLG] Rows prepared: {len(hg_data)}")
         return hg_data, combined_summary, solar_peaks_table
     finally:
         rr.close()
-
 
 # ============================================================
 # EXCEL COM WRITE
