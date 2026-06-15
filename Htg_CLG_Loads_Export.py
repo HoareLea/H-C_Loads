@@ -37,7 +37,6 @@ HTG_HEADERS = [
     "Room Name",
     "Room Area (m²)",
     "Air temperature (°C)",
-    "Dry resultant temperature (°C)",
     "External conduction gain (kW)",
     "Internal conduction gain (kW)",
     "Infiltration gain (kW)",
@@ -52,13 +51,11 @@ CLG_HEADERS = [
     "Peak date",
     "Peak time",
     "Air temperature (°C)",
-    "Dry resultant temperature (°C)",
-    "Internal gain (kW)",
+    "Sensible load (kW)",   # Room units cooling load
+    "Latent load (kW)",     # Room units dehumidification load
     "Solar gain (kW)",
-    "Conduction gain (kW)",
     "Infiltration gain (kW)",
     "Cooling + dehum plant load (kW)",
-    "Space conditioning sensible (kW)",
 ]
 
 
@@ -337,10 +334,10 @@ def collect_cooling_data(results_reader, clg_file_path, room_ids_to_analyse, pea
 
         var_map = {
             "Air temperature (°C)": ("Room air temperature", "Air temperature"),
-            "Dry resultant temperature (°C)": ("Comfort temperature", "Dry resultant temperature"),
+            "Sensible load (kW)": ("Room units cooling load", "Cooling plant sensible load"),
+            "Latent load (kW)": ("Room units dehumidification load", "Dehumidification plant load"),
             "Internal gain (kW)": ("Casual gains", "Internal gain"),
             "Solar gain (kW)": ("Window solar gains", "Solar gain"),
-            "Conduction gain (kW)": ("Conduction gain", "Conduction gain"),
             "Infiltration gain (kW)": ("Infiltration gain", "Infiltration gain"),
             "Cooling + dehum plant load (kW)": ("Room units cooling + dehum load", "Cooling + dehum plant load"),
         }
@@ -421,16 +418,15 @@ def collect_cooling_data(results_reader, clg_file_path, room_ids_to_analyse, pea
                 peak_month,
                 peak_time,
                 round(float(series["Air temperature (°C)"][peak_hour]), 2),
-                round(float(series["Dry resultant temperature (°C)"][peak_hour]), 2),
-                safe_kw_at(series["Internal gain (kW)"], peak_hour),
+                safe_kw_at(series["Sensible load (kW)"], peak_hour),
+                safe_kw_at(series["Latent load (kW)"], peak_hour),
                 safe_kw_at(series["Solar gain (kW)"], peak_hour),
-                safe_kw_at(series["Conduction gain (kW)"], peak_hour),
                 safe_kw_at(series["Infiltration gain (kW)"], peak_hour),
                 safe_kw_at(series["Cooling + dehum plant load (kW)"], peak_hour),
             ])
 
         # NEW combined coincident peak: max_h sum_rooms Cooling_sensible(room,h)
-        combined_summary = False
+        combined_summary = True
         if all_sensible_series:
             n_hours = len(all_sensible_series[0])
             combined = []
@@ -525,13 +521,15 @@ def write_results_to_template_com(
         )
 
         # Optional combined summary
+        print("[DEBUG] clg_combined_summary =", clg_combined_summary)
+        print("[DEBUG] WRITE_CLG_COMBINED_SUMMARY =", WRITE_CLG_COMBINED_SUMMARY)   
         if WRITE_CLG_COMBINED_SUMMARY and clg_combined_summary:
-            summary_row = clg_header_row + len(clg_block) + 1
+            summary_row = clg_anchor[0] - 2   # two rows above CLG_MARKER
             summary_block = [[
-                f"Combined peak ({clg_combined_summary[3]}) (kW)", clg_combined_summary[0],
+                f"Combined peak ({clg_combined_summary[3]})", clg_combined_summary[0],
                 "Month", clg_combined_summary[1], "Time", clg_combined_summary[2]
             ]]
-            write_2d_block(ws_clg, summary_row, clg_col, summary_block)
+            write_2d_block(ws_clg, clg_anchor[0] - 2, clg_col, [["TEST SUMMARY ROW"]])
 
         log("[XLSX] Saving workbook...")
         wb.Save()
