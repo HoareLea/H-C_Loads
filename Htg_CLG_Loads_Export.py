@@ -1,6 +1,7 @@
 import os
 import math
 from pathlib import Path
+import numpy
 
 import iesve
 import pythoncom
@@ -11,8 +12,8 @@ import win32com.client as win32
 # CONFIG ONLY
 # ============================================================
 TEMPLATE_PATH = r"C:\Users\juan.losada\OneDrive - Tetra Tech, Inc\Desktop\HLE-CoDE Building Performance\133 - IES input-output file\Drafting\IES Input Sheet WIP.xlsx"
-HTG_FILE = "TL - Loads.htg"
-CLG_FILE = "TL - Loads.clg"
+HTG_FILE = "TL - Loads2.htg"
+CLG_FILE = "TL - Loads2.clg"
 
 GROUPING_SCHEME_NAME = "Building"
 ROOM_GROUP_NAME = "Main building"
@@ -231,21 +232,21 @@ def print_clg_var_availability_summary(rr):
         log(f"[CLG][WARN] Could not compute variable availability summary: {e}")
 
 def make_excel_table(ws, start_row, start_col, nrows, ncols, table_name):
-    if nrows < 2 or ncols < 1:   # need header + at least 1 data row
+    if nrows < 2 or ncols < 1:
         return
+    try:
+        _ = ws.ListObjects(table_name)   # exists
+        return                           # skip if already exists
+    except Exception:
+        pass
 
-    # Excel constants (late-bound safe)
     xlSrcRange = 1
     xlYes = 1
-
-    rng = ws.Range(
-        ws.Cells(start_row, start_col),
-        ws.Cells(start_row + nrows - 1, start_col + ncols - 1)
-    )
-
+    rng = ws.Range(ws.Cells(start_row, start_col),
+                   ws.Cells(start_row + nrows - 1, start_col + ncols - 1))
     lo = ws.ListObjects.Add(xlSrcRange, rng, None, xlYes)
     lo.Name = table_name
-    lo.TableStyle = None #"TableStyleMedium2"   # optional
+    lo.TableStyle = None
 
 def get_z_display_names(rr):
     try:
@@ -285,8 +286,6 @@ def detect_cooling_sensible_pair(rr, sample_room_id):
 def collect_heating_data(results_reader, htg_file_path, room_ids_to_analyse):
     log(f"[HTG] Opening: {htg_file_path}")
     rr = results_reader.open(str(htg_file_path))
-    try: print("[UNITS] Infiltration:", (rr.get_units().get("Volume flow", {}).get("metric", {}) or {}).get("display_name"))
-    except Exception: print("[UNITS] Infiltration units unavailable from get_units()")
     
     try:
         rooms = rr.get_room_list()
@@ -298,7 +297,6 @@ def collect_heating_data(results_reader, htg_file_path, room_ids_to_analyse):
                 continue
 
             np_air_temp = get_room_results_safe(rr, room_id, 'Room air temperature', 'Air temperature')
-            np_dry_resultant_temp = get_room_results_safe(rr, room_id, 'Comfort temperature', 'Dry resultant temperature')
             np_external_conduction_gain = get_room_results_safe(rr, room_id, 'Conduction from ext elements', 'External conduction gain')
             np_internal_conduction_gain = get_room_results_safe(rr, room_id, 'Conduction from int surfaces', 'Internal conduction gain')
             np_infiltration_gain = get_room_results_safe(rr, room_id, 'Infiltration gain', 'Infiltration gain')
@@ -310,7 +308,6 @@ def collect_heating_data(results_reader, htg_file_path, room_ids_to_analyse):
                 name,
                 round(float(room_area), 2),
                 round(float(scalar(np_air_temp)), 2),
-                round(float(scalar(np_dry_resultant_temp)), 2),
                 round(float(scalar(np_external_conduction_gain)) / 1000.0, 2),
                 round(float(scalar(np_internal_conduction_gain)) / 1000.0, 2),
                 round(float(scalar(np_infiltration_gain)) / 1000.0, 2),
@@ -511,25 +508,20 @@ def write_results_to_template_com(
         solar_block = [["Peak time table - Solar gain maximums"]] + solar_peaks_table
         write_2d_block(ws_clg, solar_start_row, solar_start_col, solar_block)
 
-        make_excel_table(
-            ws_clg,
-            solar_start_row + 1,          # header row of tabular data
-            solar_start_col,
-            len(solar_peaks_table),
-            len(solar_peaks_table[0]),
-            "IES_max_solar",
-        )
+        make_excel_table(ws_clg, solar_start_row + 1,solar_start_col,len(solar_peaks_table),len(solar_peaks_table[0]),"IES_max_solar")
 
-        # Optional combined summary
-        print("[DEBUG] clg_combined_summary =", clg_combined_summary)
-        print("[DEBUG] WRITE_CLG_COMBINED_SUMMARY =", WRITE_CLG_COMBINED_SUMMARY)   
         if WRITE_CLG_COMBINED_SUMMARY and clg_combined_summary:
-            summary_row = clg_anchor[0] - 2   # two rows above CLG_MARKER
+            summary_row = max(1, clg_anchor[0] - 2)
             summary_block = [[
                 f"Combined peak ({clg_combined_summary[3]})", clg_combined_summary[0],
                 "Month", clg_combined_summary[1], "Time", clg_combined_summary[2]
             ]]
-            write_2d_block(ws_clg, clg_anchor[0] - 2, clg_col, [["TEST SUMMARY ROW"]])
+            try:
+                wb.Names("Cool_plant_sens_load").Delete()
+            except Exception:
+                pass
+            ws_clg.Cells(summary_row, clg_col + 1).Name = "Cool_plant_sens_load"
+            write_2d_block(ws_clg, summary_row, clg_col, summary_block)
 
         log("[XLSX] Saving workbook...")
         wb.Save()
