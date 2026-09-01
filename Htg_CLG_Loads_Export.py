@@ -37,12 +37,13 @@ DEBUG_PRINT_Z_VARS = False
 HTG_HEADERS = [
     "Room Name",
     "Room Area (m²)",
-    "Air temperature (°C)",
+    "Room Volume (m³)",
+    "Room air temperature (°C)",
     "External conduction gain (kW)",
     "Internal conduction gain (kW)",
     "Infiltration gain (kW)",
-    "Natural ventilation (kW)",
-    "Auxiliary gain (kW)",
+    #"Natural ventilation (kW)",
+    "Mechanical vent gain (kW)",
     "Infiltration ACH"
 ]
 
@@ -51,7 +52,7 @@ CLG_HEADERS = [
     "Room Area (m²)",
     "Peak date",
     "Peak time",
-    "Air temperature (°C)",
+    "Room air temperature (°C)",
     "Sensible load (kW)",   # Room units cooling load
     "Latent load (kW)",     # Room units dehumidification load
     "Solar gain (kW)",
@@ -195,7 +196,7 @@ def pick_peak_driver_series(series, room_id, room_name, preferred_driver):
         "Space conditioning sensible (kW)",
         "Solar gain (kW)",
         "Internal gain (kW)",
-        "Air temperature (°C)",
+        "Room air temperature (°C)",
     ]
     seen = set()
     for k in order:
@@ -300,18 +301,19 @@ def collect_heating_data(results_reader, htg_file_path, room_ids_to_analyse):
             np_external_conduction_gain = get_room_results_safe(rr, room_id, 'Conduction from ext elements', 'External conduction gain')
             np_internal_conduction_gain = get_room_results_safe(rr, room_id, 'Conduction from int surfaces', 'Internal conduction gain')
             np_infiltration_gain = get_room_results_safe(rr, room_id, 'Infiltration gain', 'Infiltration gain')
-            np_natural_ventilation_gain = get_room_results_safe(rr, room_id, 'Natural vent gain', 'Natural vent gain')
+            #np_natural_ventilation_gain = get_room_results_safe(rr, room_id, 'Natural vent gain', 'Natural vent gain')
             np_aux_gain = get_room_results_safe(rr, room_id, 'Aux mech vent gain', 'Aux vent gain')
             np_infiltration_flow = get_room_results_safe(rr, room_id, 'Infiltration', 'Infiltration')*1e3*3.6/room_volume
             
             hl_data.append([
                 name,
                 round(float(room_area), 2),
+                round(float(room_volume), 2), 
                 round(float(scalar(np_air_temp)), 2),
                 round(float(scalar(np_external_conduction_gain)) / 1000.0, 2),
                 round(float(scalar(np_internal_conduction_gain)) / 1000.0, 2),
                 round(float(scalar(np_infiltration_gain)) / 1000.0, 2),
-                round(float(scalar(np_natural_ventilation_gain)) / 1000.0, 2),
+                #round(float(scalar(np_natural_ventilation_gain)) / 1000.0, 2),
                 round(float(scalar(np_aux_gain)) / 1000.0, 2),
                 round(float(scalar(np_infiltration_flow)), 4),  # m³/s
             ])
@@ -330,7 +332,7 @@ def collect_cooling_data(results_reader, clg_file_path, room_ids_to_analyse, pea
         rooms = rr.get_room_list()
 
         var_map = {
-            "Air temperature (°C)": ("Room air temperature", "Air temperature"),
+            "Room air temperature (°C)": ("Room air temperature", "Air temperature"),
             "Sensible load (kW)": ("Room units cooling load", "Cooling plant sensible load"),
             "Latent load (kW)": ("Room units dehumidification load", "Dehumidification plant load"),
             "Internal gain (kW)": ("Casual gains", "Internal gain"),
@@ -414,7 +416,7 @@ def collect_cooling_data(results_reader, clg_file_path, room_ids_to_analyse, pea
                 round(float(room_area), 2),
                 peak_month,
                 peak_time,
-                round(float(series["Air temperature (°C)"][peak_hour]), 2),
+                round(float(series["Room air temperature (°C)"][peak_hour]), 2),
                 safe_kw_at(series["Sensible load (kW)"], peak_hour),
                 safe_kw_at(series["Latent load (kW)"], peak_hour),
                 safe_kw_at(series["Solar gain (kW)"], peak_hour),
